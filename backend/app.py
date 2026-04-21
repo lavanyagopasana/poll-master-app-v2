@@ -9,7 +9,7 @@ app = Flask(__name__)
 # Use a list of allowed origins for security
 CORS(app, resources={r"/*": {"origins": [
     "http://localhost:5173", 
-    "https://poll-master-v2-frontend.onrender.com" # Replace with your real frontend URL
+    "https://poll-master-v2-frontend.onrender.com" # Replaced with real frontend URL
 ]}})
 
 init_db(app)
