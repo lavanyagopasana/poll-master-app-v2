@@ -1,0 +1,24 @@
+# --- Python / Backend ---
+**/venv/
+**/__pycache__/
+**/*.pyc
+**/instance/
+**/*.db
+**/*.sqlite3
+.env
+
+# --- Node / Frontend ---
+**/node_modules/
+**/dist/
+**/build/
+.eslintcache
+*.local
+
+# --- Screenshots (Keep them if you want them on GitHub, but common to ignore) ---
+# screenshots/ 
+
+# --- Operating System ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
