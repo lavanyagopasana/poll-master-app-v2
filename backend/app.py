@@ -78,5 +78,7 @@ def get_results(poll_id):
     })
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
+    # Render assigns a port, usually 10000. 
+    # If not found, it defaults to 5000 for local dev.
+    port = int(os.environ.get("PORT", 10000)) 
     app.run(host='0.0.0.0', port=port)
