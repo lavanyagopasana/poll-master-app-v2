@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://127.0.0.1:5000';
+const API_BASE_URL = 'https://poll-master-v2-api.onrender.com/' // Replace with your actual Render URL';
 
 export const getPolls = () => axios.get(`${API_BASE_URL}/polls`);
 export const createPoll = (pollData) => axios.post(`${API_BASE_URL}/polls`, pollData);
