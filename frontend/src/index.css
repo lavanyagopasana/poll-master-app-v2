@@ -1,22 +1,22 @@
+@import "tailwindcss";
+
+@theme {
+  /* This ensures Tailwind v4 recognizes your custom colors */
+  --color-brand-green: #D4F5A6;
+  --color-brand-pink: #FFDAE9;
+}
+
 body {
-  background-color: #f4f7f6;
-  color: #333;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  background-color: #F8FAFC;
 }
 
 .poll-card {
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-  transition: transform 0.2s;
+  transition: transform 0.2s ease-in-out;
 }
 
 .poll-card:hover {
-  transform: translateY(-2px);
-}
-
-button {
-  transition: all 0.2s;
-  font-weight: 600;
-}
-
-button:hover {
-  filter: brightness(0.9);
+  transform: translateY(-4px);
 }
