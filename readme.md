@@ -67,7 +67,7 @@ cd backend
 ```
 2. Create and activate a virtual environment:
 
-```Bash
+```bash
 python -m venv venv
 # Windows:
 venv\Scripts\activate
@@ -76,12 +76,18 @@ source venv/bin/activate
 ```
 3. Install dependencies:
 
-```Bash
+```bash
 pip install Flask Flask-Cors Flask-SQLAlchemy PyMySQL cryptography
 ```
-4. Start the Flask server:
+4. Setup Environment Variables
+```bash
+# Copy the example file and add your MySQL credentials
+cp .env.example .env
+```
 
-```Bash
+5. Start the Flask server:
+
+```bash
 python app.py
 ```
 The API will be running at http://127.0.0.1:5000
@@ -89,17 +95,17 @@ The API will be running at http://127.0.0.1:5000
 ### 2. Frontend Setup
 1. Open a new terminal and navigate to the frontend folder:
 
-```Bash
+```bash
 cd frontend
 ```
 2. Install dependencies:
 
-```Bash
+```bash
 npm install
 ```
 3. Start the Vite development server:
 
-```Bash
+```bash
 npm run dev
 ```
 Open the URL provided in the terminal (usually http://localhost:5173).
