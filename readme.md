@@ -123,4 +123,6 @@ Open the URL provided in the terminal (usually http://localhost:5173).
 - **Security**: Prevention of duplicate voting and SQL injection protection (via SQLAlchemy).
 
 ## 🗒️Note
- - The live demo is hosted on Render's free tier. If the page appears blank, please wait 30–60 seconds for the backend to wake up, then refresh.
+ The live demo is hosted on Render's free tier. If the page appears blank, please wait 30–60 seconds for the backend to wake up, then refresh.
+
+- **Live Demo**: [Poll Master App](https://poll-master-v2-frontend.onrender.com/)
