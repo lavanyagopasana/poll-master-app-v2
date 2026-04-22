@@ -84,12 +84,16 @@ function App() {
 
   const handleVote = async (pollId, optionId) => {
     try {
-      await voteOnPoll(pollId, optionId);
-      fetchPolls();
-    } catch (err) {
-      console.error("Error casting vote", err);
-    }
-  };
+        // 2. Just send the vote to the server
+        await voteOnPoll(pollId, optionId);
+        
+        // 3. Immediately fetch the fresh, real data from the server
+        const response = await getPolls();
+        setPolls(response.data);
+      } catch (err) {
+        console.error("Error casting vote", err);
+      }
+    };
 
   const handleDelete = async (pollId) => {
     if (window.confirm("Are you sure you want to delete this poll?")) {
@@ -152,11 +156,11 @@ function App() {
       <main className="max-w-5xl mx-auto px-4 py-16 relative z-10">
         <div className="flex flex-col items-center">
           
-          {/* Create Poll Card - Redesigned to be clean and simple */}
-          <div className="w-full max-w-lg bg-white rounded-[2.5rem] shadow-[0_25px_60px_rgba(14,116,144,0.05)] border border-slate-100/70 p-12">
-            <h2 className="text-3xl font-bold text-center text-slate-800 mb-8">Create a New Poll</h2>
+          {/* Create Poll Card - Mobile Optimized */}
+          <div className="w-full max-w-lg bg-white rounded-3xl md:rounded-[2.5rem] shadow-[0_25px_60px_rgba(14,116,144,0.05)] border border-slate-100/70 p-6 md:p-12">
+            <h2 className="text-2xl md:text-3xl font-bold text-center text-slate-800 mb-6 md:mb-8">Create a New Poll</h2>
             
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-5 md:space-y-6">
               <div>
                 <div className="flex justify-between items-end mb-2 px-1">
                   <label className="text-sm font-bold text-slate-700">Enter Question</label>
@@ -170,7 +174,7 @@ function App() {
                   value={question} 
                   onChange={(e) => setQuestion(e.target.value)}
                   required
-                  className={`w-full px-6 py-4 rounded-xl bg-slate-50 border transition-all focus:outline-none ${
+                  className={`w-full px-4 md:px-6 py-3.5 md:py-4 rounded-xl bg-slate-50 border transition-all focus:outline-none ${
                     question.length > QUESTION_LIMIT 
                     ? 'border-red-500 ring-4 ring-red-500/10' 
                     : 'border-slate-200 focus:border-cyan-600 focus:ring-4 focus:ring-cyan-500/10'
@@ -178,10 +182,10 @@ function App() {
                 />
               </div>
 
-              <div className="space-y-4">
-                <label className="block text-xs font-bold uppercase tracking-widest text-slate-400 px-1">Options (Min: 2, Max: 4)</label>
+              <div className="space-y-3 md:space-y-4">
+                <label className="block text-[10px] md:text-xs font-bold uppercase tracking-widest text-slate-400 px-1">Options (Min: 2, Max: 4)</label>
                 {options.map((opt, index) => (
-                  <div key={index} className="flex gap-3 group items-center">
+                  <div key={index} className="flex gap-2 md:gap-3 group items-center">
                     <input 
                       type="text" 
                       placeholder={`Option ${index + 1}`} 
@@ -189,7 +193,7 @@ function App() {
                       ref={index === options.length - 1 ? lastOptionRef : null}
                       onChange={(e) => handleOptionChange(index, e.target.value)}
                       required
-                      className={`flex-1 px-6 py-4 rounded-xl bg-slate-50 border transition-all focus:outline-none ${
+                      className={`flex-1 px-4 md:px-6 py-3.5 md:py-4 rounded-xl bg-slate-50 border transition-all focus:outline-none ${
                         errors.options && opt.trim() === ""
                         ? 'border-red-400 bg-red-50/30 ring-4 ring-red-500/5'
                         : 'border-slate-200 focus:border-cyan-600'
@@ -207,25 +211,20 @@ function App() {
                     )}
                   </div>
                 ))}
-                {errors.options && (
-                  <p className="text-[10px] text-red-500 font-bold uppercase tracking-tighter px-1 animate-pulse">
-                    {errors.options}
-                  </p>
-                )}
               </div>
 
-              <div className="flex gap-4 pt-4">
+              <div className="flex flex-col sm:flex-row gap-3 md:gap-4 pt-2 md:pt-4">
                 <button 
                   type="button" 
                   onClick={handleAddOption} 
                   disabled={options.length >= 4}
-                  className="flex-1 flex items-center justify-center gap-2 py-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 font-bold hover:bg-slate-100 transition-all disabled:opacity-40 shadow-sm"
+                  className="flex-1 flex items-center justify-center gap-2 py-3.5 md:py-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 font-bold hover:bg-slate-100 transition-all disabled:opacity-40 shadow-sm"
                 >
                   <Plus size={20} /> Add Option
                 </button>
                 <button 
                   type="submit" 
-                  className="flex-1 py-4 rounded-xl bg-[#0E7490] text-white font-bold hover:bg-cyan-800 transition-all shadow-lg shadow-cyan-900/15 active:scale-95"
+                  className="flex-1 py-3.5 md:py-4 rounded-xl bg-[#0E7490] text-white font-bold hover:bg-cyan-800 transition-all shadow-lg shadow-cyan-900/15 active:scale-95"
                 >
                   Create Poll
                 </button>
