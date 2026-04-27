@@ -21,9 +21,11 @@ csrf = CSRFProtect(app)
 
 # Exempt ALL API endpoints from CSRF protection since they use JSON
 # This must be done before defining routes
-@app.before_first_request
 def exempt_csrf():
     csrf.exempt('/api/*')
+
+# Call the exemption immediately
+exempt_csrf()
 
 # Initialize extensions
 CORS(app, resources={r"/api/*": {"origins": [
