@@ -1,50 +1,62 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { getPolls, createPoll, voteOnPoll, deletePoll } from './api'
 import PollCard from './components/PollCard'
 import { Plus, List, BarChart3, X, Loader2 } from 'lucide-react'
+
+// Development-only logging utility
+const isDev = import.meta.env.DEV;
+const log = {
+  info: (...args) => isDev && console.log(...args),
+  error: (...args) => isDev && console.error(...args)
+};
 
 function App() {
   const [polls, setPolls] = useState([]);
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState(['', '']);
-  const [errors, setErrors] = useState({});
-  const [isLoading, setIsLoading] = useState(true); 
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
   const lastOptionRef = useRef(null);
   const QUESTION_LIMIT = 100;
 
-  
-// 1. Define fetchPolls with an internal check
-  const fetchPolls = useCallback(async () => {
-    // Wrap the loading start in a check or a slight delay if the error persists
-    setIsLoading(true); 
-    
+  // Simple load function without pagination
+  const loadPolls = async () => {
     try {
+      setIsLoading(true);
+      setError(null);
       const response = await getPolls();
-      console.log("Data received:", response.data);
-      setPolls(response.data);
-    } catch (error) {
-      console.error("Error fetching polls:", error);
+      // Handle both response formats (array or object with data property)
+      const pollsData = Array.isArray(response) ? response : (response.data || []);
+      setPolls(pollsData);
+      log.info(`Loaded ${pollsData.length} polls`);
+    } catch (err) {
+      log.error("Error fetching polls:", err);
+      setError("Failed to load polls. Please check if backend is running.");
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  };
 
-  // 2. Use a "Passive" Effect
+  // Fixed: Wrap loadPolls in an async function to avoid setState warning
   useEffect(() => {
-    // Calling it inside a simple anonymous function helps 
-    // decouple the trigger from the render cycle.
-    const initialize = async () => {
-      await fetchPolls();
+    let isMounted = true;
+    
+    const initLoad = async () => {
+      if (isMounted) {
+        await loadPolls();
+      }
     };
     
-    initialize();
-  }, [fetchPolls]);
-
+    initLoad();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Empty dependency array
 
   const handleAddOption = () => {
     if (options.length < 4) {
       setOptions([...options, '']);
-      setErrors((prev) => ({ ...prev, options: null }));
     }
   };
 
@@ -58,59 +70,107 @@ function App() {
     const newOptions = [...options];
     newOptions[index] = value;
     setOptions(newOptions);
-    if (errors.options) setErrors({});
+  };
+
+  // Focus utility
+  useEffect(() => {
+    if (options.length > 2 && lastOptionRef.current) {
+      lastOptionRef.current.focus();
+    }
+  }, [options.length]);
+
+  const handleVote = async (pollId, optionId) => {
+    try {
+      // Call the API first to validate the vote
+      await voteOnPoll(pollId, optionId);
+      log.info("Vote successful");
+      
+      // Only update UI if vote was successful
+      setPolls(prevPolls => prevPolls.map(poll => {
+        if (poll.id === pollId) {
+          return {
+            ...poll,
+            total_votes: (poll.total_votes || 0) + 1,
+            options: poll.options.map(opt => 
+              opt.id === optionId ? { ...opt, votes: (opt.votes || 0) + 1 } : opt
+            )
+          };
+        }
+        return poll;
+      }));
+    } catch (err) {
+      log.error("Vote failed", err);
+      if (err.response?.status === 429) {
+        setError("You have already voted on this poll.");
+      } else {
+        setError("Failed to record vote. Please try again.");
+      }
+      // No need to reload polls since we didn't do optimistic update
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const hasEmptyOption = options.some(opt => opt.trim() === "");
-    if (hasEmptyOption) {
-      setErrors({ options: "All options must be filled out" });
+    
+    // Validation
+    if (!question.trim()) {
+      setError("Please enter a question");
       return;
     }
-    if (question.length > QUESTION_LIMIT) return;
+    
+    if (options.some(opt => !opt.trim())) {
+      setError("Please fill in all options");
+      return;
+    }
+    
+    if (question.length > QUESTION_LIMIT) {
+      setError(`Question must be less than ${QUESTION_LIMIT} characters`);
+      return;
+    }
+    
+    setError(null);
+    
     try {
       await createPoll({ question, options });
+      log.info("Poll created successfully");
       setQuestion('');
       setOptions(['', '']);
-      setErrors({});
-      fetchPolls();
+      await loadPolls(); // Reload the list
+      // Scroll to polls section
       document.getElementById('polls-list')?.scrollIntoView({ behavior: 'smooth' });
     } catch (err) {
-      console.error("Error creating poll", err);
-    }
-  };
-
-  const handleVote = async (pollId, optionId) => {
-    try {
-      await voteOnPoll(pollId, optionId);
-      // Directly update the list to show the new vote count
-      const response = await getPolls();
-      setPolls(response.data);
-    } catch (err) {
-      console.error("Error casting vote", err);
+      log.error("Create failed", err);
+      setError("Failed to create poll. Please try again.");
     }
   };
 
   const handleDelete = async (pollId) => {
-    if (window.confirm("Are you sure you want to delete this poll?")) {
-      try {
-        await deletePoll(pollId);
-        localStorage.removeItem(`voted_${pollId}`);
-        fetchPolls();
-      } catch (err) {
-        console.error("Error deleting poll", err);
-      }
+    if (!window.confirm("Are you sure you want to delete this poll?")) return;
+    
+    // Optimistic delete
+    setPolls(polls.filter(p => p.id !== pollId));
+    
+    try {
+      await deletePoll(pollId);
+      log.info("Poll deleted successfully");
+    } catch (error) {
+      log.error("Delete failed", error);
+      setError("Failed to delete poll. Please try again.");
+      await loadPolls(); // Reload to restore
     }
+  };
+
+  const refreshPolls = () => {
+    loadPolls();
   };
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans relative overflow-x-hidden">
       
-      {/* 1. RESTORED Background Illustrations (Tailwind v4 compatible) */}
+      {/* Background Illustrations */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         <div 
-          className="absolute top-40 -right-10 p-4 rounded-3xl w-[260px] shadow-lg hidden lg:block"
+          className="absolute top-40 -right-10 p-4 rounded-3xl w-65 shadow-lg hidden lg:block"
           style={{ backgroundColor: '#D4F5A6', border: '1px solid #CDEB9D', opacity: 0.8 }}
         >
           <div className="w-10 h-10 bg-white rounded-xl mb-4" />
@@ -119,7 +179,7 @@ function App() {
         </div>
 
         <div 
-          className="absolute bottom-40 -left-10 p-4 rounded-3xl w-[220px] shadow-lg hidden lg:block"
+          className="absolute bottom-40 -left-10 p-4 rounded-3xl w-55 shadow-lg hidden lg:block"
           style={{ backgroundColor: '#FFDAE9', border: '1px solid #F5C7D9', opacity: 0.8 }}
         >
           <div className="w-full h-3 bg-white/60 rounded-full mb-2" />
@@ -128,7 +188,7 @@ function App() {
         </div>
       </div>
 
-      <nav className="fixed top-0 left-0 right-0 h-16 md:h-20 bg-white/90 backdrop-blur-md border-b border-slate-100 z-[100] flex items-center justify-between px-4 md:px-10">
+      <nav className="fixed top-0 left-0 right-0 h-16 md:h-20 bg-white/90 backdrop-blur-md border-b border-slate-100 z-100 flex items-center justify-between px-4 md:px-10">
         <div className="flex items-center gap-2">
           <div className="bg-[#0E7490] p-1.5 rounded-lg shadow-lg">
             <BarChart3 className="text-white w-5 h-5 md:w-6 md:h-6" />
@@ -148,6 +208,16 @@ function App() {
       </nav>
 
       <main className="max-w-5xl mx-auto px-4 pt-24 md:pt-36 pb-16 relative z-10">
+        {/* Error Display */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex justify-between items-center">
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700">
+              <X size={16} />
+            </button>
+          </div>
+        )}
+
         <div className="flex flex-col items-center">
             <div className="w-full max-w-lg bg-white rounded-3xl shadow-[0_25px_60px_rgba(14,116,144,0.05)] border border-slate-100/70 p-6 md:p-10">
                 <h2 className="text-2xl md:text-3xl font-bold text-center text-slate-800 mb-6">Create a New Poll</h2>
@@ -165,12 +235,13 @@ function App() {
                             value={question} 
                             onChange={(e) => setQuestion(e.target.value)}
                             required
+                            maxLength={QUESTION_LIMIT}
                             className="w-full px-4 py-3.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-cyan-600 focus:outline-none"
                         />
                     </div>
 
                     <div className="space-y-3">
-                        <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 px-1">Options</label>
+                        <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 px-1">Options (2-4)</label>
                         {options.map((opt, index) => (
                         <div key={index} className="flex gap-2 group items-center">
                             <input 
@@ -183,7 +254,7 @@ function App() {
                             className="flex-1 px-4 py-3.5 rounded-xl bg-slate-50 border border-slate-200 focus:border-cyan-600 focus:outline-none"
                             />
                             {options.length > 2 && (
-                            <button type="button" onClick={() => handleRemoveOption(index)} className="text-slate-300 hover:text-red-500 p-1">
+                            <button type="button" onClick={() => handleRemoveOption(index)} className="text-slate-300 hover:text-red-500 p-1 transition-colors">
                                 <X size={18} />
                             </button>
                             )}
@@ -192,11 +263,11 @@ function App() {
                     </div>
 
                     <div className="flex gap-3 pt-2">
-                        <button type="button" onClick={handleAddOption} disabled={options.length >= 4} className="flex-1 py-3.5 rounded-xl border border-slate-200 text-slate-700 font-bold hover:bg-slate-50 disabled:opacity-40">
-                          + Add
+                        <button type="button" onClick={handleAddOption} disabled={options.length >= 4} className="flex-1 py-3.5 rounded-xl border border-slate-200 text-slate-700 font-bold hover:bg-slate-50 disabled:opacity-40 transition-all">
+                          + Add Option
                         </button>
-                        <button type="submit" className="flex-1 py-3.5 rounded-xl bg-[#0E7490] text-white font-bold hover:bg-cyan-800 shadow-lg">
-                          Create
+                        <button type="submit" className="flex-1 py-3.5 rounded-xl bg-[#0E7490] text-white font-bold hover:bg-cyan-800 shadow-lg transition-all">
+                          Create Poll
                         </button>
                     </div>
                 </form>
@@ -204,11 +275,19 @@ function App() {
         </div>
 
         <div id="polls-list" className="mt-24 md:mt-32 scroll-mt-24">
-          <div className="flex items-center gap-3 mb-8 md:mb-12">
-            <div className="bg-cyan-100 p-2 rounded-xl">
-              <List className="text-cyan-700" size={20} />
+          <div className="flex items-center justify-between mb-8 md:mb-12">
+            <div className="flex items-center gap-3">
+              <div className="bg-cyan-100 p-2 rounded-xl">
+                <List className="text-cyan-700" size={20} />
+              </div>
+              <h2 className="text-2xl md:text-3xl font-bold text-slate-800">Active Polls</h2>
             </div>
-            <h2 className="text-2xl md:text-3xl font-bold text-slate-800">Active Polls</h2>
+            <button 
+              onClick={refreshPolls}
+              className="text-sm text-cyan-600 hover:text-cyan-700 font-medium transition-colors"
+            >
+              Refresh
+            </button>
           </div>
 
           {isLoading ? (
@@ -222,6 +301,12 @@ function App() {
                 <div className="col-span-full py-20 px-6 bg-white rounded-3xl border-2 border-dashed border-slate-200 text-center">
                   <h3 className="text-xl font-bold text-slate-800 mb-2">No active polls</h3>
                   <p className="text-slate-500 mb-6">Be the first to start a conversation!</p>
+                  <button 
+                    onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                    className="px-6 py-2 bg-[#0E7490] text-white rounded-full hover:bg-cyan-800 transition-colors"
+                  >
+                    Create First Poll
+                  </button>
                 </div>
               ) : (
                 polls.map(poll => (
