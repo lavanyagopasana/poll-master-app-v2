@@ -85,19 +85,8 @@ function App() {
       await voteOnPoll(pollId, optionId);
       log.info("Vote successful");
       
-      // Only update UI if vote was successful
-      setPolls(prevPolls => prevPolls.map(poll => {
-        if (poll.id === pollId) {
-          return {
-            ...poll,
-            total_votes: (poll.total_votes || 0) + 1,
-            options: poll.options.map(opt => 
-              opt.id === optionId ? { ...opt, votes: (opt.votes || 0) + 1 } : opt
-            )
-          };
-        }
-        return poll;
-      }));
+      // Refresh polls from server to get accurate vote counts and percentages
+      await loadPolls();
     } catch (err) {
       log.error("Vote failed", err);
       if (err.response?.status === 429) {
@@ -105,7 +94,6 @@ function App() {
       } else {
         setError("Failed to record vote. Please try again.");
       }
-      // No need to reload polls since we didn't do optimistic update
     }
   };
 

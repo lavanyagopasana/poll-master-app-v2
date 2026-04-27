@@ -19,11 +19,15 @@ class Poll(db.Model):
     options = db.relationship('Option', backref='poll', cascade="all, delete-orphan", lazy='joined')
 
     def to_dict(self):
+        # Calculate total votes from options (most reliable)
+        total_votes_from_options = sum(opt.votes for opt in self.options)
+        
         return {
             "id": self.id,
             "question": self.question,
             "options": [opt.to_dict() for opt in self.options],
-            "totalVotes": sum(opt.votes for opt in self.options),
+            "total_votes": total_votes_from_options,  # For frontend consistency
+            "totalVotes": total_votes_from_options,  # For backward compatibility
             "createdAt": self.created_at.isoformat() # Convert to string for JSON
         }
 
