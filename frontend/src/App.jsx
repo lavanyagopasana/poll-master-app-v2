@@ -19,12 +19,32 @@ function App() {
   const [votedPolls, setVotedPolls] = useState([]);
   const lastOptionRef = useRef(null);
   const QUESTION_LIMIT = 100;
+  
+  // Cache refs to prevent unnecessary API calls
+  const pollsCacheRef = useRef(null);
+  const voteStatusCacheRef = useRef(null);
+  const lastFetchTimeRef = useRef(0);
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-  // Load vote status for current user
-  const loadVoteStatus = async () => {
+  // Load vote status for current user (with caching)
+  const loadVoteStatus = async (force = false) => {
+    const now = Date.now();
+    
+    // Check cache first
+    if (!force && voteStatusCacheRef.current && (now - lastFetchTimeRef.current) < CACHE_DURATION) {
+      log.info("Using cached vote status");
+      setVotedPolls(voteStatusCacheRef.current);
+      return;
+    }
+    
     try {
       const response = await getVoteStatus();
       const votedPollIds = response.data?.voted_polls || [];
+      
+      // Update cache
+      voteStatusCacheRef.current = votedPollIds;
+      lastFetchTimeRef.current = now;
+      
       setVotedPolls(votedPollIds);
       log.info(`Loaded vote status: ${votedPollIds.length} voted polls`);
     } catch (err) {
@@ -33,18 +53,33 @@ function App() {
     }
   };
 
-  // Simple load function without pagination
-  const loadPolls = async () => {
+  // Load polls with caching
+  const loadPolls = async (force = false) => {
+    const now = Date.now();
+    
+    // Check cache first (unless forced)
+    if (!force && pollsCacheRef.current && (now - lastFetchTimeRef.current) < CACHE_DURATION) {
+      log.info("Using cached polls");
+      setPolls(pollsCacheRef.current);
+      await loadVoteStatus(); // Use cached vote status
+      return;
+    }
+    
     try {
       setIsLoading(true);
       setError(null);
       const [pollsResponse] = await Promise.all([
         getPolls(),
-        loadVoteStatus()
+        loadVoteStatus(force) // Force refresh only when polls are forced
       ]);
       
       // Handle new standardized API response format
       const pollsData = pollsResponse.data?.polls || pollsResponse.data || [];
+      
+      // Update cache
+      pollsCacheRef.current = pollsData;
+      lastFetchTimeRef.current = now;
+      
       setPolls(pollsData);
       log.info(`Loaded ${pollsData.length} polls`);
     } catch (err) {
@@ -99,17 +134,38 @@ function App() {
 
   const handleVote = async (pollId, optionId) => {
     try {
-      // Call the API first to validate the vote
+      // Optimistic update: update UI immediately
+      setPolls(prevPolls => prevPolls.map(poll => {
+        if (poll.id === pollId) {
+          return {
+            ...poll,
+            total_votes: (poll.total_votes || 0) + 1,
+            options: poll.options.map(opt => 
+              opt.id === optionId ? { ...opt, votes: (opt.votes || 0) + 1 } : opt
+            )
+          };
+        }
+        return poll;
+      }));
+      
+      // Add to voted polls state immediately and update cache
+      setVotedPolls(prev => {
+        const updated = [...new Set([...prev, pollId])];
+        voteStatusCacheRef.current = updated; // Update cache
+        return updated;
+      });
+      
+      // Call API to record vote
       await voteOnPoll(pollId, optionId);
       log.info("Vote successful");
       
-      // Add to voted polls state immediately for better UX
-      setVotedPolls(prev => [...new Set([...prev, pollId])]);
+      // No need to refresh vote status since we updated it optimistically
       
-      // Refresh polls from server to get accurate vote counts and percentages
-      await loadPolls();
     } catch (err) {
       log.error("Vote failed", err);
+      // Revert optimistic update on failure
+      await loadPolls();
+      
       if (err.response?.status === 429) {
         setError("You have already voted on this poll.");
       } else {
@@ -140,16 +196,33 @@ function App() {
     setError(null);
     
     try {
-      await createPoll({ question, options });
+      // Create poll and get response
+      const response = await createPoll({ question, options });
       log.info("Poll created successfully");
+      
+      // Optimistic update: add new poll to the list immediately
+      if (response.data?.poll) {
+        setPolls(prevPolls => {
+          const updated = [response.data.poll, ...prevPolls];
+          pollsCacheRef.current = updated; // Update cache
+          return updated;
+        });
+      }
+      
+      // Reset form
       setQuestion('');
       setOptions(['', '']);
-      await loadPolls(); // Reload the list
+      
       // Scroll to polls section
       document.getElementById('polls-list')?.scrollIntoView({ behavior: 'smooth' });
+      
+      // No need to refresh vote status for new polls
+      
     } catch (err) {
       log.error("Create failed", err);
       setError("Failed to create poll. Please try again.");
+      // Only reload on error
+      await loadPolls();
     }
   };
 
@@ -169,8 +242,12 @@ function App() {
     }
   };
 
-  const refreshPolls = () => {
-    loadPolls();
+  const refreshPolls = async () => {
+    // Clear cache and force refresh
+    pollsCacheRef.current = null;
+    voteStatusCacheRef.current = null;
+    lastFetchTimeRef.current = 0;
+    await loadPolls(true); // Force refresh
   };
 
   return (
