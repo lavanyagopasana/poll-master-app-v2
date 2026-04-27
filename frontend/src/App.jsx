@@ -199,14 +199,21 @@ function App() {
       // Create poll and get response
       const response = await createPoll({ question, options });
       log.info("Poll created successfully");
+      log.info("Create poll response:", response);
       
       // Optimistic update: add new poll to the list immediately
-      if (response.data?.poll) {
+      const newPoll = response.data?.data || response.data; // Handle both response formats
+      log.info("New poll extracted:", newPoll);
+      
+      if (newPoll) {
         setPolls(prevPolls => {
-          const updated = [response.data.poll, ...prevPolls];
+          const updated = [newPoll, ...prevPolls];
           pollsCacheRef.current = updated; // Update cache
+          log.info("Updated polls list with new poll");
           return updated;
         });
+      } else {
+        log.error("No new poll data found in response");
       }
       
       // Reset form
