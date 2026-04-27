@@ -242,8 +242,8 @@ def vote(poll_id):
             return error_response('Failed to record vote', 500)
         
         # Clear cache for this poll
-        cache.delete_memoized(get_poll_results, poll_id)
-        cache.delete(f'api/polls/{poll_id}/results')
+        cache.delete(f'view:/api/polls/{poll_id}/results')
+        cache.delete('view:/api/polls')
         
         # Return updated poll data
         return success_response(poll.to_dict(), 'Vote recorded successfully')
@@ -267,9 +267,8 @@ def delete_poll(poll_id):
         # Clear targeted cache entries
         cache.delete('view:/api/polls')
         cache.delete('view:/api/polls/stats')
-        cache.delete_memoized(get_poll_results, poll_id)
-        cache.delete(f'api/polls/{poll_id}/results')
-        
+        cache.delete(f'view:/api/polls/{poll_id}/results')
+                
         return success_response(None, 'Poll deleted successfully')
         
     except Exception as e:
