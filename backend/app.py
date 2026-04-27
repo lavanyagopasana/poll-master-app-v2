@@ -16,16 +16,9 @@ app.config['CACHE_TYPE'] = 'simple'  # Simple in-memory cache
 app.config['CACHE_DEFAULT_TIMEOUT'] = 60  # Cache timeout in seconds
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# Initialize CSRF protection
-csrf = CSRFProtect(app)
-
-# Exempt ALL API endpoints from CSRF protection since they use JSON
-# This must be done before defining routes
-def exempt_csrf():
-    csrf.exempt('/api/*')
-
-# Call the exemption immediately
-exempt_csrf()
+# Initialize CSRF protection but disable it for API endpoints
+# We don't need CSRF for JSON API endpoints
+# csrf = CSRFProtect(app)  # Commented out to disable CSRF completely
 
 # Initialize extensions
 CORS(app, resources={r"/api/*": {"origins": [
@@ -78,9 +71,9 @@ def error_response(message, status_code=400, error_code=None):
 
 @app.route('/api/csrf-token', methods=['GET'])
 def get_csrf_token():
-    """Provide CSRF token for frontend"""
+    """CSRF token endpoint - disabled for JSON APIs"""
     try:
-        return success_response({'csrf_token': csrf.generate_token()})
+        return success_response({'csrf_token': 'disabled'})
     except Exception as e:
         app.logger.error(f"Error generating CSRF token: {str(e)}")
         return error_response('Failed to generate CSRF token', 500)
