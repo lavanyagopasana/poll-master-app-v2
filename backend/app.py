@@ -142,32 +142,32 @@ def create_poll():
         
         # Enhanced validation and sanitization
         if not data.get('question'):
-            return jsonify({"error": "Question is required"}), 400
+            return error_response('Question is required')
         
         # Sanitize and validate question
         question = bleach.clean(data['question'].strip(), tags=[], strip=True)
         if len(question) > 200:
-            return jsonify({"error": "Question must be less than 200 characters"}), 400
+            return error_response('Question must be less than 200 characters')
         if not question:
-            return jsonify({"error": "Question cannot be empty after sanitization"}), 400
+            return error_response('Question cannot be empty after sanitization')
         
         options = data.get('options', [])
         if len(options) < 2:
-            return jsonify({"error": "At least 2 options are required"}), 400
+            return error_response('At least 2 options are required')
         if len(options) > 4:
-            return jsonify({"error": "Maximum 4 options allowed"}), 400
+            return error_response('Maximum 4 options allowed')
         
         # Validate and sanitize options
         sanitized_options = []
         for opt_text in options:
             if not opt_text or not opt_text.strip():
-                return jsonify({"error": "Options cannot be empty"}), 400
+                return error_response('Options cannot be empty')
             
             sanitized_text = bleach.clean(opt_text.strip(), tags=[], strip=True)
             if len(sanitized_text) > 100:
-                return jsonify({"error": "Each option must be less than 100 characters"}), 400
+                return error_response('Each option must be less than 100 characters')
             if not sanitized_text:
-                return jsonify({"error": "Option cannot be empty after sanitization"}), 400
+                return error_response('Option cannot be empty after sanitization')
             
             sanitized_options.append(sanitized_text)
         
@@ -184,12 +184,12 @@ def create_poll():
         cache.delete('view:/api/polls')
         cache.delete('view:/api/polls/stats')
         
-        return jsonify(new_poll.to_dict()), 201
+        return success_response(new_poll.to_dict(), 'Poll created successfully', 201)
         
     except Exception as e:
         db.session.rollback()
         app.logger.error(f"Error creating poll: {str(e)}")
-        return jsonify({"error": "Failed to create poll"}), 500
+        return error_response('Failed to create poll', 500)
 
 @app.route('/api/polls/<int:poll_id>/vote', methods=['POST'])
 def vote(poll_id):
@@ -199,7 +199,7 @@ def vote(poll_id):
         option_id = data.get('optionId')
         
         if not option_id:
-            return jsonify({"error": "Option ID is required"}), 400
+            return error_response('Option ID is required')
         
         # Get client IP for rate limiting
         client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.environ.get('REMOTE_ADDR'))
@@ -207,22 +207,22 @@ def vote(poll_id):
             client_ip = client_ip.split(',')[0].strip()  # Take first IP in list
         
         if not client_ip:
-            return jsonify({"error": "Unable to determine client IP"}), 400
+            return error_response('Unable to determine client IP')
         
         # Check if this IP has already voted on this poll
         existing_vote = Vote.query.filter_by(poll_id=poll_id, ip_address=client_ip).first()
         if existing_vote:
-            return jsonify({"error": "You have already voted on this poll"}), 429
+            return error_response('You have already voted on this poll', 429)
         
         # Find the option and verify it belongs to the poll
         option = Option.query.filter_by(id=option_id, poll_id=poll_id).first()
         if not option:
-            return jsonify({"error": "Option not found"}), 404
+            return error_response('Option not found', 404)
         
         # Verify poll is active
         poll = Poll.query.get(poll_id)
         if not poll or not poll.is_active:
-            return jsonify({"error": "Poll not found or inactive"}), 404
+            return error_response('Poll not found or inactive', 404)
         
         # Atomic vote recording
         try:
@@ -246,19 +246,19 @@ def vote(poll_id):
         except Exception as db_error:
             db.session.rollback()
             app.logger.error(f"Database error during vote: {str(db_error)}")
-            return jsonify({"error": "Failed to record vote"}), 500
+            return error_response('Failed to record vote', 500)
         
         # Clear cache for this poll
         cache.delete_memoized(get_poll_results, poll_id)
         cache.delete(f'api/polls/{poll_id}/results')
         
         # Return updated poll data
-        return jsonify(poll.to_dict()), 200
+        return success_response(poll.to_dict(), 'Vote recorded successfully')
         
     except Exception as e:
         db.session.rollback()
         app.logger.error(f"Error voting: {str(e)}")
-        return jsonify({"error": "Failed to record vote"}), 500
+        return error_response('Failed to record vote', 500)
 
 @app.route('/api/polls/<int:poll_id>', methods=['DELETE'])
 def delete_poll(poll_id):
@@ -277,12 +277,12 @@ def delete_poll(poll_id):
         cache.delete_memoized(get_poll_results, poll_id)
         cache.delete(f'api/polls/{poll_id}/results')
         
-        return jsonify({"message": "Poll deleted successfully"}), 200
+        return success_response(None, 'Poll deleted successfully')
         
     except Exception as e:
         db.session.rollback()
         app.logger.error(f"Error deleting poll: {str(e)}")
-        return jsonify({"error": "Failed to delete poll"}), 500
+        return error_response('Failed to delete poll', 500)
 
 @app.route('/api/polls/<int:poll_id>/results', methods=['GET'])
 @cache.cached(timeout=60, key_prefix=lambda: f'api/polls/{poll_id}/results')
@@ -297,7 +297,7 @@ def get_poll_results(poll_id):  # Make sure poll_id is in the function parameter
             total_votes = sum(opt.votes for opt in poll.options)
         
         # Structure results as requested
-        return jsonify({
+        return success_response({
             "question": poll.question,
             "totalVotes": total_votes,
             "results": [
@@ -307,12 +307,11 @@ def get_poll_results(poll_id):  # Make sure poll_id is in the function parameter
                     "percentage": round((opt.votes / total_votes * 100), 1) if total_votes > 0 else 0
                 } for opt in poll.options
             ]
-        }), 200
+        })
         
     except Exception as e:
         app.logger.error(f"Error fetching results: {str(e)}")
-        return jsonify({"error": "Failed to fetch results"}), 500
-    
+        return error_response('Failed to fetch results', 500)
 
 @app.route('/api/polls/stats', methods=['GET'])
 @cache.cached(timeout=300)  # Cache for 5 minutes
@@ -323,15 +322,15 @@ def get_stats():
         total_votes = db.session.query(func.sum(Option.votes)).scalar() or 0
         most_popular_poll = Poll.query.filter_by(is_active=True).order_by(desc(Poll.total_votes)).first()
         
-        return jsonify({
+        return success_response({
             "total_polls": total_polls,
             "total_votes": total_votes,
             "most_popular_poll": most_popular_poll.to_dict() if most_popular_poll else None
-        }), 200
+        })
         
     except Exception as e:
         app.logger.error(f"Error fetching stats: {str(e)}")
-        return jsonify({"error": "Failed to fetch stats"}), 500
+        return error_response('Failed to fetch stats', 500)
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -339,26 +338,23 @@ def health_check():
     try:
         # Test database connection
         db.session.execute(text('SELECT 1'))
-        return jsonify({
+        return success_response({
             "status": "healthy",
             "database": "connected",
             "cache": "active"
-        }), 200
+        })
     except Exception as e:
-        return jsonify({
-            "status": "unhealthy",
-            "error": str(e)
-        }), 500
+        return error_response(str(e), 500)
 
 # Error handlers
 @app.errorhandler(404)
 def not_found(error):
-    return jsonify({"error": "Resource not found"}), 404
+    return error_response('Resource not found', 404)
 
 @app.errorhandler(500)
 def internal_error(error):
     db.session.rollback()
-    return jsonify({"error": "Internal server error"}), 500
+    return error_response('Internal server error', 500)
 
 # Performance middleware to add response headers
 @app.after_request
