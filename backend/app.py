@@ -19,13 +19,11 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-i
 # Initialize CSRF protection
 csrf = CSRFProtect(app)
 
-# Exempt API endpoints from CSRF protection since they use JSON
-csrf.exempt('/api/polls')
-csrf.exempt('/api/polls/<int:poll_id>/vote')
-csrf.exempt('/api/polls/<int:poll_id>')
-csrf.exempt('/api/polls/<int:poll_id>/results')
-csrf.exempt('/api/polls/stats')
-csrf.exempt('/api/health')
+# Exempt ALL API endpoints from CSRF protection since they use JSON
+# This must be done before defining routes
+@app.before_first_request
+def exempt_csrf():
+    csrf.exempt('/api/*')
 
 # Initialize extensions
 CORS(app, resources={r"/api/*": {"origins": [
@@ -236,10 +234,10 @@ def vote(poll_id):
             db.session.add(vote_record)
             
             # Update option votes atomically
-            option.votes = Option.votes + 1
+            option.votes += 1
             
             # Update poll total votes atomically
-            poll.total_votes = Poll.total_votes + 1
+            poll.total_votes += 1
             
             db.session.commit()
             
