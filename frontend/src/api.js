@@ -47,7 +47,9 @@ apiClient.interceptors.response.use(
 export const getPolls = async () => {
   try {
     log.info('Fetching polls from /api/polls');
-    const response = await apiClient.get('/api/polls');
+    const response = await apiClient.get('/api/polls', { 
+      params: { _t: Date.now() } // Force cache refresh
+    });
     log.info('Polls response:', response.data);
     return response.data; // Return the data directly
   } catch (error) {
@@ -92,9 +94,22 @@ export const deletePoll = async (pollId) => {
   }
 };
 
+export const getVoteStatus = async () => {
+  try {
+    log.info('Fetching vote status');
+    const response = await apiClient.get('/api/votes/status');
+    log.info('Vote status:', response.data);
+    return response.data;
+  } catch (error) {
+    log.error('Failed to get vote status:', error);
+    throw error;
+  }
+};
+
 export default {
   getPolls,
   createPoll,
   voteOnPoll,
   deletePoll,
+  getVoteStatus,
 };

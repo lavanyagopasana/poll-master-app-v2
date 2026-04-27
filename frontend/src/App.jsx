@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { getPolls, createPoll, voteOnPoll, deletePoll } from './api'
+import { getPolls, createPoll, voteOnPoll, deletePoll, getVoteStatus } from './api'
 import PollCard from './components/PollCard'
 import { Plus, List, BarChart3, X, Loader2 } from 'lucide-react'
 
@@ -16,17 +16,35 @@ function App() {
   const [options, setOptions] = useState(['', '']);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [votedPolls, setVotedPolls] = useState([]);
   const lastOptionRef = useRef(null);
   const QUESTION_LIMIT = 100;
+
+  // Load vote status for current user
+  const loadVoteStatus = async () => {
+    try {
+      const response = await getVoteStatus();
+      const votedPollIds = response.data?.voted_polls || [];
+      setVotedPolls(votedPollIds);
+      log.info(`Loaded vote status: ${votedPollIds.length} voted polls`);
+    } catch (err) {
+      log.error("Error fetching vote status:", err);
+      // Don't set error for vote status, just continue without it
+    }
+  };
 
   // Simple load function without pagination
   const loadPolls = async () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await getPolls();
+      const [pollsResponse] = await Promise.all([
+        getPolls(),
+        loadVoteStatus()
+      ]);
+      
       // Handle new standardized API response format
-      const pollsData = response.data?.polls || response.data || [];
+      const pollsData = pollsResponse.data?.polls || pollsResponse.data || [];
       setPolls(pollsData);
       log.info(`Loaded ${pollsData.length} polls`);
     } catch (err) {
@@ -84,6 +102,9 @@ function App() {
       // Call the API first to validate the vote
       await voteOnPoll(pollId, optionId);
       log.info("Vote successful");
+      
+      // Add to voted polls state immediately for better UX
+      setVotedPolls(prev => [...new Set([...prev, pollId])]);
       
       // Refresh polls from server to get accurate vote counts and percentages
       await loadPolls();
@@ -303,6 +324,7 @@ function App() {
                     poll={poll} 
                     onVote={handleVote} 
                     onDelete={handleDelete} 
+                    hasVoted={votedPolls.includes(poll.id)}
                   />
                 ))
               )}

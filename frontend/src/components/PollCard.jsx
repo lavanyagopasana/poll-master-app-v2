@@ -1,8 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Trash2, Flame, Sparkles } from 'lucide-react';
 
-const PollCard = React.memo(({ poll, onVote, onDelete }) => {
-  const [voted, setVoted] = useState(false);
+const PollCard = React.memo(({ poll, onVote, onDelete, hasVoted }) => {
   const [isVoting, setIsVoting] = useState(false);
 
   const handleVoteAction = async (optionId) => {
@@ -11,9 +10,8 @@ const PollCard = React.memo(({ poll, onVote, onDelete }) => {
     setIsVoting(true);
     try {
       await onVote(poll.id, optionId);
-      setVoted(true);
     } catch (error) {
-      // Vote failed, keep voted as false
+      // Vote failed, let parent handle the error
     } finally {
       setIsVoting(false);
     }
@@ -21,7 +19,7 @@ const PollCard = React.memo(({ poll, onVote, onDelete }) => {
 
   const totalVotesCount = poll.total_votes ?? poll.totalVotes ?? 0;
 
-  // ✅ Percentages are memoized — only recalculate when votes actually change
+  // Percentages are memoized — only recalculate when votes actually change
   const percentages = useMemo(() => {
     const map = {};
     for (const opt of poll.options) {
@@ -70,7 +68,7 @@ const PollCard = React.memo(({ poll, onVote, onDelete }) => {
       <div className="space-y-3 grow">
         {poll.options.map((opt) => (
           <div key={opt.id}>
-            {voted ? (
+            {hasVoted ? (
               <div className="animate-in fade-in slide-in-from-left-2 duration-700">
                 <div className="flex justify-between items-end mb-1.5 px-1">
                   <span className="text-sm font-semibold text-slate-700">{opt.text}</span>
@@ -103,9 +101,9 @@ const PollCard = React.memo(({ poll, onVote, onDelete }) => {
 
       <div className="mt-8 pt-5 border-t border-slate-50 flex justify-between items-center">
         <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${voted ? 'bg-cyan-500' : 'bg-emerald-500 animate-pulse'}`} />
+          <div className={`w-2 h-2 rounded-full ${hasVoted ? 'bg-cyan-500' : 'bg-emerald-500 animate-pulse'}`} />
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            {voted ? 'Results Live' : 'Accepting Votes'}
+            {hasVoted ? 'Results Live' : 'Accepting Votes'}
           </span>
         </div>
         <div className="flex items-center gap-1.5 bg-slate-900 text-white px-3 py-1.5 rounded-xl shadow-lg">

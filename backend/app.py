@@ -276,6 +276,30 @@ def delete_poll(poll_id):
         app.logger.error(f"Error deleting poll: {str(e)}")
         return error_response('Failed to delete poll', 500)
 
+@app.route('/api/votes/status', methods=['GET'])
+def get_vote_status():
+    """Get vote status for all polls for the current user"""
+    try:
+        # Get client IP
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        if client_ip:
+            client_ip = client_ip.split(',')[0].strip()
+        
+        if not client_ip:
+            return error_response('Unable to determine client IP')
+        
+        # Get all votes by this IP
+        user_votes = Vote.query.filter_by(ip_address=client_ip).all()
+        
+        # Return list of poll IDs the user has voted on
+        voted_polls = [vote.poll_id for vote in user_votes]
+        
+        return success_response({'voted_polls': voted_polls}, 'Vote status retrieved')
+        
+    except Exception as e:
+        app.logger.error(f"Error getting vote status: {str(e)}")
+        return error_response('Failed to get vote status', 500)
+
 @app.route('/api/polls/<int:poll_id>/results', methods=['GET'])
 @cache.cached(timeout=60, key_prefix=lambda: f'api/polls/{poll_id}/results')
 def get_poll_results(poll_id):  # Make sure poll_id is in the function parameters
