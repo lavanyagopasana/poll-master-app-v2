@@ -43,11 +43,11 @@ apiClient.interceptors.response.use(
   }
 );
 
-// Polls API endpoints - TEMPORARY REVERT TO WORKING ENDPOINTS
+// Polls API endpoints - NOW USING IMPROVED BACKEND ROUTES
 export const getPolls = async () => {
   try {
-    log.info('Fetching polls from /polls');
-    const response = await apiClient.get('/polls');
+    log.info('Fetching polls from /api/polls');
+    const response = await apiClient.get('/api/polls');
     log.info('Polls response:', response.data);
     return response.data; // Return the data directly
   } catch (error) {
@@ -59,7 +59,7 @@ export const getPolls = async () => {
 export const createPoll = async (pollData) => {
   try {
     log.info('Creating poll:', pollData);
-    const response = await apiClient.post('/polls', pollData);
+    const response = await apiClient.post('/api/polls', pollData);
     log.info('Poll created:', response.data);
     return response.data;
   } catch (error) {
@@ -71,7 +71,7 @@ export const createPoll = async (pollData) => {
 export const voteOnPoll = async (pollId, optionId) => {
   try {
     log.info(`Voting on poll ${pollId} with option ${optionId}`);
-    const response = await apiClient.post(`/polls/${pollId}/vote`, { optionId });
+    const response = await apiClient.post(`/api/polls/${pollId}/vote`, { optionId });
     log.info('Vote recorded:', response.data);
     return response.data;
   } catch (error) {
@@ -83,7 +83,7 @@ export const voteOnPoll = async (pollId, optionId) => {
 export const deletePoll = async (pollId) => {
   try {
     log.info(`Deleting poll ${pollId}`);
-    const response = await apiClient.delete(`/polls/${pollId}`);
+    const response = await apiClient.delete(`/api/polls/${pollId}`);
     log.info('Poll deleted:', response.data);
     return response.data;
   } catch (error) {

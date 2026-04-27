@@ -25,8 +25,8 @@ function App() {
       setIsLoading(true);
       setError(null);
       const response = await getPolls();
-      // Handle both response formats (array or object with data property)
-      const pollsData = Array.isArray(response) ? response : (response.data || []);
+      // Handle new standardized API response format
+      const pollsData = response.data?.polls || response.data || [];
       setPolls(pollsData);
       log.info(`Loaded ${pollsData.length} polls`);
     } catch (err) {
