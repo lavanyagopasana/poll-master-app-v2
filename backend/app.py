@@ -207,19 +207,23 @@ def create_poll():
 def vote(poll_id):
     """Vote on a poll option with server-side tracking and rate limiting"""
     try:
-        data = request.json
+        data = request.json or {}
         option_id = data.get('optionId')
+        vote_token = (data.get('voteToken') or request.headers.get('X-Vote-Token', '')).strip()
         
         if not option_id:
             return error_response('Option ID is required')
         
-        # Get client IP for rate limiting
-        client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.environ.get('REMOTE_ADDR'))
-        if client_ip and ',' in client_ip:
-            client_ip = client_ip.split(',')[0].strip()  # Take first IP in list
-        
-        if not client_ip:
-            return error_response('Unable to determine client IP')
+        if vote_token:
+            client_ip = vote_token[:45]  # Stored in Vote.ip_address column
+        else:
+            # Fall back to IP for legacy clients
+            client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.environ.get('REMOTE_ADDR'))
+            if client_ip and ',' in client_ip:
+                client_ip = client_ip.split(',')[0].strip()  # Take first IP in list
+            
+            if not client_ip:
+                return error_response('Unable to determine client IP')
         
         # Check if this IP has already voted on this poll
         existing_vote = Vote.query.filter_by(poll_id=poll_id, ip_address=client_ip).first()
@@ -307,15 +311,20 @@ def delete_poll(poll_id):
 def get_vote_status():
     """Get vote status for all polls for the current user"""
     try:
-        # Get client IP
-        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-        if client_ip:
-            client_ip = client_ip.split(',')[0].strip()
+        # Use stable per-browser identity when available.
+        vote_token = (request.args.get('voteToken') or request.headers.get('X-Vote-Token', '')).strip()
+        if vote_token:
+            client_ip = vote_token[:45]
+        else:
+            # Fall back to IP for legacy clients
+            client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+            if client_ip:
+                client_ip = client_ip.split(',')[0].strip()
+            
+            if not client_ip:
+                return error_response('Unable to determine client IP')
         
-        if not client_ip:
-            return error_response('Unable to determine client IP')
-        
-        # Get all votes by this IP
+        # Get all votes by this identity
         user_votes = Vote.query.filter_by(ip_address=client_ip).all()
         
         # Return list of poll IDs the user has voted on
