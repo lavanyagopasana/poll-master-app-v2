@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from flask_caching import Cache
 from flask_compress import Compress
@@ -7,7 +7,10 @@ from models import db, Poll, Option, Vote
 from database import db, init_db
 import os
 import bleach
+import time
+from threading import Lock
 from sqlalchemy import func, desc, text
+from sqlalchemy.exc import IntegrityError
 
 app = Flask(__name__)
 
@@ -32,9 +35,26 @@ Compress(app)
 
 # Initialize cache
 cache = Cache(app)
+cache_version_lock = Lock()
+cache_versions = {"polls": 1, "results": 1}
 
 # Initialize database
 init_db(app)
+
+
+def bump_polls_cache_version():
+    """Versioned invalidation avoids clearing unrelated cached endpoints."""
+    with cache_version_lock:
+        cache_versions["polls"] += 1
+        cache_versions["results"] += 1
+
+
+def polls_cache_key():
+    return f"polls:v{cache_versions['polls']}:{request.full_path}"
+
+
+def poll_results_cache_key():
+    return f"poll-results:v{cache_versions['results']}:{request.path}"
 
 # Helper function to add pagination info
 def paginate(query, page, per_page):
@@ -79,7 +99,7 @@ def get_csrf_token():
         return error_response('Failed to generate CSRF token', 500)
 
 @app.route('/api/polls', methods=['GET'])
-@cache.cached(timeout=30, query_string=True)  # Cache for 30 seconds, vary by query params
+@cache.cached(timeout=30, key_prefix=polls_cache_key)  # Cache with explicit versioned key
 def get_polls():
     """Get all polls with pagination and optimized queries"""
     try:
@@ -173,9 +193,8 @@ def create_poll():
         db.session.add(new_poll)
         db.session.commit()
         
-        # Clear targeted cache entries after creating new poll
-        cache.delete('view:/api/polls')
-        cache.delete('view:/api/polls/stats')
+        # Invalidate polls-related cache after write
+        bump_polls_cache_version()
         
         return success_response(new_poll.to_dict(), 'Poll created successfully', 201)
         
@@ -228,25 +247,35 @@ def vote(poll_id):
             )
             db.session.add(vote_record)
             
-            # Update option votes atomically
-            option.votes += 1
-            
-            # Update poll total votes atomically
-            poll.total_votes += 1
+            # Update option and poll counters atomically at DB level
+            option_rows = Option.query.filter_by(id=option_id, poll_id=poll_id).update(
+                {Option.votes: Option.votes + 1},
+                synchronize_session=False
+            )
+            poll_rows = Poll.query.filter_by(id=poll_id, is_active=True).update(
+                {Poll.total_votes: Poll.total_votes + 1},
+                synchronize_session=False
+            )
+            if option_rows != 1 or poll_rows != 1:
+                raise RuntimeError("Failed to update vote counters")
             
             db.session.commit()
-            
+
+        except IntegrityError as integrity_error:
+            db.session.rollback()
+            app.logger.warning(f"Duplicate vote prevented: {str(integrity_error)}")
+            return error_response('You have already voted on this poll', 429)
         except Exception as db_error:
             db.session.rollback()
             app.logger.error(f"Database error during vote: {str(db_error)}")
             return error_response('Failed to record vote', 500)
         
-        # Clear cache for this poll
-        cache.delete(f'view:/api/polls/{poll_id}/results')
-        cache.delete('view:/api/polls')
+        # Invalidate polls-related cache after write
+        bump_polls_cache_version()
         
-        # Return updated poll data
-        return success_response(poll.to_dict(), 'Vote recorded successfully')
+        # Return updated poll data from fresh DB state
+        updated_poll = Poll.query.get(poll_id)
+        return success_response(updated_poll.to_dict(), 'Vote recorded successfully')
         
     except Exception as e:
         db.session.rollback()
@@ -264,10 +293,8 @@ def delete_poll(poll_id):
         
         db.session.commit()
         
-        # Clear targeted cache entries
-        cache.delete('view:/api/polls')
-        cache.delete('view:/api/polls/stats')
-        cache.delete(f'view:/api/polls/{poll_id}/results')
+        # Invalidate polls-related cache after write
+        bump_polls_cache_version()
                 
         return success_response(None, 'Poll deleted successfully')
         
@@ -301,7 +328,7 @@ def get_vote_status():
         return error_response('Failed to get vote status', 500)
 
 @app.route('/api/polls/<int:poll_id>/results', methods=['GET'])
-@cache.cached(timeout=60, key_prefix=lambda: f'api/polls/{poll_id}/results')
+@cache.cached(timeout=60, key_prefix=poll_results_cache_key)
 def get_poll_results(poll_id):  # Make sure poll_id is in the function parameters
     """Get detailed results for a specific poll"""
     try:
@@ -373,11 +400,26 @@ def internal_error(error):
     return error_response('Internal server error', 500)
 
 # Performance middleware to add response headers
+@app.before_request
+def mark_request_start():
+    g.start_time = time.perf_counter()
+
+
 @app.after_request
 def add_performance_headers(response):
     """Add caching headers for better performance"""
+    if hasattr(g, 'start_time'):
+        duration_ms = int((time.perf_counter() - g.start_time) * 1000)
+        response.headers['X-Response-Time-ms'] = str(duration_ms)
+
     if request.method == 'GET':
-        response.headers['Cache-Control'] = 'public, max-age=30'
+        # Keep poll/vote reads fresh so deleted polls do not reappear from stale HTTP caches.
+        if request.path.startswith('/api/polls') or request.path.startswith('/api/votes/status'):
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+        else:
+            response.headers['Cache-Control'] = 'public, max-age=30'
         response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 

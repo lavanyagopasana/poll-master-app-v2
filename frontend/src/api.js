@@ -44,11 +44,12 @@ apiClient.interceptors.response.use(
 );
 
 // Polls API endpoints - NOW USING IMPROVED BACKEND ROUTES
-export const getPolls = async () => {
+export const getPolls = async (bypassCache = false) => {
   try {
     log.info('Fetching polls from /api/polls');
-    const response = await apiClient.get('/api/polls', { 
-      params: { _t: Date.now() } // Force cache refresh
+    const response = await apiClient.get('/api/polls', {
+      params: bypassCache ? { _t: Date.now() } : undefined,
+      headers: bypassCache ? { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } : undefined
     });
     log.info('Polls response:', response.data);
     return response.data; // Return the data directly

@@ -10,6 +10,9 @@ const log = {
   error: (...args) => isDev && console.error(...args)
 };
 
+const LOCAL_VOTED_POLLS_KEY = 'pollmaster_voted_polls';
+const LOCAL_POLLS_CACHE_KEY = 'pollmaster_cached_polls';
+
 function App() {
   const [polls, setPolls] = useState([]);
   const [question, setQuestion] = useState('');
@@ -23,15 +26,75 @@ function App() {
   // Cache refs to prevent unnecessary API calls
   const pollsCacheRef = useRef(null);
   const voteStatusCacheRef = useRef(null);
-  const lastFetchTimeRef = useRef(0);
-  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+  const localVotedPollsRef = useRef([]);
+  const pollsLastFetchTimeRef = useRef(0);
+  const voteStatusLastFetchTimeRef = useRef(0);
+  const CACHE_DURATION = 15 * 1000; // Keep UI fresh while still reducing duplicate requests
+
+  const mergeUniquePollIds = (a = [], b = []) => [...new Set([...(a || []), ...(b || [])])];
+
+  const persistPollsCache = (nextPolls) => {
+    pollsCacheRef.current = nextPolls;
+    try {
+      localStorage.setItem(LOCAL_POLLS_CACHE_KEY, JSON.stringify(nextPolls));
+    } catch (storageError) {
+      log.error('Failed to persist polls cache:', storageError);
+    }
+  };
+
+  const setStableVotedPolls = (nextPollIds) => {
+    const unique = [...new Set(nextPollIds || [])];
+    localVotedPollsRef.current = unique;
+    voteStatusCacheRef.current = unique;
+    setVotedPolls(unique);
+    try {
+      localStorage.setItem(LOCAL_VOTED_POLLS_KEY, JSON.stringify(unique));
+    } catch (storageError) {
+      log.error('Failed to persist voted polls locally:', storageError);
+    }
+  };
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LOCAL_VOTED_POLLS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const normalized = parsed
+          .map((id) => Number(id))
+          .filter((id) => Number.isInteger(id) && id > 0);
+        if (normalized.length > 0) {
+          localVotedPollsRef.current = normalized;
+          voteStatusCacheRef.current = normalized;
+          setVotedPolls(normalized);
+        }
+      }
+    } catch (storageError) {
+      log.error('Failed to read local voted polls:', storageError);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LOCAL_POLLS_CACHE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        persistPollsCache(parsed);
+        setPolls(parsed);
+        setIsLoading(false);
+      }
+    } catch (storageError) {
+      log.error('Failed to read local polls cache:', storageError);
+    }
+  }, []);
 
   // Load vote status for current user (with caching)
   const loadVoteStatus = async (force = false) => {
     const now = Date.now();
     
     // Check cache first
-    if (!force && voteStatusCacheRef.current && (now - lastFetchTimeRef.current) < CACHE_DURATION) {
+    if (!force && voteStatusCacheRef.current && (now - voteStatusLastFetchTimeRef.current) < CACHE_DURATION) {
       log.info("Using cached vote status");
       setVotedPolls(voteStatusCacheRef.current);
       return;
@@ -40,13 +103,20 @@ function App() {
     try {
       const response = await getVoteStatus();
       const votedPollIds = response.data?.voted_polls || [];
+      const mergedVoteState = mergeUniquePollIds(votedPollIds, localVotedPollsRef.current);
       
       // Update cache
-      voteStatusCacheRef.current = votedPollIds;
-      lastFetchTimeRef.current = now;
+      voteStatusCacheRef.current = mergedVoteState;
+      voteStatusLastFetchTimeRef.current = now;
+      localVotedPollsRef.current = mergedVoteState;
+      try {
+        localStorage.setItem(LOCAL_VOTED_POLLS_KEY, JSON.stringify(mergedVoteState));
+      } catch (storageError) {
+        log.error('Failed to persist merged vote status:', storageError);
+      }
       
-      setVotedPolls(votedPollIds);
-      log.info(`Loaded vote status: ${votedPollIds.length} voted polls`);
+      setVotedPolls(mergedVoteState);
+      log.info(`Loaded vote status: ${mergedVoteState.length} voted polls`);
     } catch (err) {
       log.error("Error fetching vote status:", err);
       // Don't set error for vote status, just continue without it
@@ -54,11 +124,11 @@ function App() {
   };
 
   // Load polls with caching
-  const loadPolls = async (force = false) => {
+  const loadPolls = async (force = false, silent = false) => {
     const now = Date.now();
     
     // Check cache first (unless forced)
-    if (!force && pollsCacheRef.current && (now - lastFetchTimeRef.current) < CACHE_DURATION) {
+    if (!force && pollsCacheRef.current && (now - pollsLastFetchTimeRef.current) < CACHE_DURATION) {
       log.info("Using cached polls");
       setPolls(pollsCacheRef.current);
       await loadVoteStatus(); // Use cached vote status
@@ -66,27 +136,29 @@ function App() {
     }
     
     try {
-      setIsLoading(true);
+      if (!silent) setIsLoading(true);
       setError(null);
-      const [pollsResponse] = await Promise.all([
-        getPolls(),
-        loadVoteStatus(force) // Force refresh only when polls are forced
-      ]);
+      const pollsResponse = await getPolls(force);
       
       // Handle new standardized API response format
       const pollsData = pollsResponse.data?.polls || pollsResponse.data || [];
       
       // Update cache
-      pollsCacheRef.current = pollsData;
-      lastFetchTimeRef.current = now;
+      persistPollsCache(pollsData);
+      pollsLastFetchTimeRef.current = now;
       
       setPolls(pollsData);
       log.info(`Loaded ${pollsData.length} polls`);
+
+      // Load vote status in background so poll cards render faster.
+      loadVoteStatus(force).catch((voteStatusError) => {
+        log.error("Background vote-status refresh failed:", voteStatusError);
+      });
     } catch (err) {
       log.error("Error fetching polls:", err);
       setError("Failed to load polls. Please check if backend is running.");
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
@@ -106,6 +178,17 @@ function App() {
       isMounted = false;
     };
   }, []); // Empty dependency array
+
+  // Background refresh keeps cross-user vote results near-live.
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadPolls(true, true);
+      }
+    }, 12000);
+
+    return () => clearInterval(intervalId);
+  }, []);
 
   const handleAddOption = () => {
     if (options.length < 4) {
@@ -135,36 +218,47 @@ function App() {
   const handleVote = async (pollId, optionId) => {
     try {
       // Optimistic update: update UI immediately
-      setPolls(prevPolls => prevPolls.map(poll => {
-        if (poll.id === pollId) {
-          return {
-            ...poll,
-            total_votes: (poll.total_votes || 0) + 1,
-            options: poll.options.map(opt => 
-              opt.id === optionId ? { ...opt, votes: (opt.votes || 0) + 1 } : opt
-            )
-          };
-        }
-        return poll;
-      }));
-      
-      // Add to voted polls state immediately and update cache
-      setVotedPolls(prev => {
-        const updated = [...new Set([...prev, pollId])];
-        voteStatusCacheRef.current = updated; // Update cache
-        return updated;
+      setPolls(prevPolls => {
+        const optimisticPolls = prevPolls.map(poll => {
+          if (poll.id === pollId) {
+            return {
+              ...poll,
+              total_votes: (poll.total_votes || 0) + 1,
+              options: poll.options.map(opt =>
+                opt.id === optionId ? { ...opt, votes: (opt.votes || 0) + 1 } : opt
+              )
+            };
+          }
+          return poll;
+        });
+        persistPollsCache(optimisticPolls);
+        return optimisticPolls;
       });
       
-      // Call API to record vote
-      await voteOnPoll(pollId, optionId);
+      // Add to voted polls state immediately and update cache
+      setStableVotedPolls(mergeUniquePollIds(localVotedPollsRef.current, [pollId]));
+      
+      // Call API and reconcile optimistic state with server truth
+      const response = await voteOnPoll(pollId, optionId);
+      const updatedPoll = response?.data;
+      if (updatedPoll?.id) {
+        setPolls(prevPolls => {
+          const nextPolls = prevPolls.map(p => (p.id === updatedPoll.id ? updatedPoll : p));
+          persistPollsCache(nextPolls);
+          return nextPolls;
+        });
+      }
       log.info("Vote successful");
       
       // No need to refresh vote status since we updated it optimistically
       
     } catch (err) {
       log.error("Vote failed", err);
+      if (err.response?.status !== 429) {
+        setStableVotedPolls(localVotedPollsRef.current.filter((id) => id !== pollId));
+      }
       // Revert optimistic update on failure
-      await loadPolls();
+      await loadPolls(true, true);
       
       if (err.response?.status === 429) {
         setError("You have already voted on this poll.");
@@ -208,7 +302,7 @@ function App() {
       if (newPoll) {
         setPolls(prevPolls => {
           const updated = [newPoll, ...prevPolls];
-          pollsCacheRef.current = updated; // Update cache
+          persistPollsCache(updated);
           log.info("Updated polls list with new poll");
           return updated;
         });
@@ -237,7 +331,11 @@ function App() {
     if (!window.confirm("Are you sure you want to delete this poll?")) return;
     
     // Optimistic delete
-    setPolls(polls.filter(p => p.id !== pollId));
+    setPolls(prevPolls => {
+      const updated = prevPolls.filter(p => p.id !== pollId);
+      persistPollsCache(updated);
+      return updated;
+    });
     
     try {
       await deletePoll(pollId);
@@ -253,8 +351,9 @@ function App() {
     // Clear cache and force refresh
     pollsCacheRef.current = null;
     voteStatusCacheRef.current = null;
-    lastFetchTimeRef.current = 0;
-    await loadPolls(true); // Force refresh
+    pollsLastFetchTimeRef.current = 0;
+    voteStatusLastFetchTimeRef.current = 0;
+    await loadPolls(true, false); // Force refresh with visible loader
   };
 
   return (
